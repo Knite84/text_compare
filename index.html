@@ -129,6 +129,9 @@
       <label style="cursor: pointer; user-select: none;">
         <input type="checkbox" id="ignore-whitespace" onchange="runDiff()"> Ignore Whitespace
       </label>
+      <label style="cursor: pointer; user-select: none;" title="Ignores original line breaks (e.g. text copied from a PDF) and re-splits both sides into one sentence or list item per line">
+        <input type="checkbox" id="reflow-lines" onchange="runDiff()"> Reflow Lines (PDF)
+      </label>
     </div>
 
     <div class="controls-right">
@@ -173,9 +176,41 @@
       }
     });
 
+    // Lines that start a new item rather than continue a wrapped one: "1.", "a)", bullets
+    const listMarker = /^(?:\d+[.)]|[a-zA-Z][.)]|[•●▪◦■])\s+/;
+
+    // Discard the source's line wrapping, then re-split deterministically so both
+    // sides line up regardless of how the PDF or Word doc wrapped the text.
+    function reflowText(text) {
+      const items = [];
+      for (const raw of text.replace(/­/g, '').split(/\r\n?|\n/)) {
+        const line = raw.replace(/\s+/g, ' ').trim();
+        if (!line) continue;
+        if (items.length === 0 || listMarker.test(line)) {
+          items.push(line);
+        } else {
+          items[items.length - 1] += ' ' + line;
+        }
+      }
+
+      const out = [];
+      for (const item of items) {
+        const marker = (item.match(listMarker) || [''])[0];
+        const sentences = item.slice(marker.length).split(/(?<=[.!?]["'”’)\]]?)\s+(?=["'“‘(\[]?[A-Z0-9])/);
+        sentences[0] = marker.trim() ? marker.trim() + ' ' + sentences[0] : sentences[0];
+        out.push(...sentences);
+      }
+      return out.join('\n');
+    }
+
     function runDiff() {
-      const left = document.getElementById('text-left').value;
-      const right = document.getElementById('text-right').value;
+      const reflow = document.getElementById('reflow-lines').checked;
+      let left = document.getElementById('text-left').value;
+      let right = document.getElementById('text-right').value;
+      if (reflow) {
+        left = reflowText(left);
+        right = reflowText(right);
+      }
       const ignoreWhitespace = document.getElementById('ignore-whitespace').checked;
       const mode = localStorage.getItem('theme-preference') || 'system';
       const effectiveTheme = getEffectiveTheme(mode);
